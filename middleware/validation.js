@@ -20,8 +20,8 @@ export const validate = (req, res, next) => {
 export const validateCheckoutSession = [
   body('planId')
     .isString()
-    .isIn(['basic', 'moderate', 'advance'])
-    .withMessage('Invalid plan ID. Must be one of: basic, moderate, advance'),
+    .isIn(['test', 'basic', 'moderate', 'advance'])
+    .withMessage('Invalid plan ID. Must be one of: test, basic, moderate, advance'),
   body('email')
     .isEmail()
     .normalizeEmail()
@@ -50,7 +50,7 @@ export const validatePortalSession = [
 export const validatePlanId = [
   param('planId')
     .isString()
-    .isIn(['basic', 'moderate', 'advance'])
+    .isIn(['test', 'basic', 'moderate', 'advance'])
     .withMessage('Invalid plan ID'),
   validate,
 ];
