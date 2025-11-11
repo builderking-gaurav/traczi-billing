@@ -36,15 +36,19 @@ router.post(
 
     logger.info(`Received Stripe webhook: ${event.type}`);
 
-    // Log event to database
-    await subscriptionService.logStripeEvent({
-      stripe_event_id: event.id,
-      event_type: event.type,
-      stripe_customer_id: event.data.object.customer || null,
-      stripe_subscription_id: event.data.object.id || event.data.object.subscription || null,
-      payload: event.data.object,
-      processed: false,
-    });
+    // Log event to database (if available)
+    try {
+      await subscriptionService.logStripeEvent({
+        stripe_event_id: event.id,
+        event_type: event.type,
+        stripe_customer_id: event.data.object.customer || null,
+        stripe_subscription_id: event.data.object.id || event.data.object.subscription || null,
+        payload: event.data.object,
+        processed: false,
+      });
+    } catch (dbError) {
+      logger.warn('Database not available for event logging, continuing anyway');
+    }
 
     try {
       // Handle different event types
@@ -77,15 +81,23 @@ router.post(
           logger.info(`Unhandled event type: ${event.type}`);
       }
 
-      // Mark event as processed
-      await subscriptionService.markEventProcessed(event.id, true);
+      // Mark event as processed (if database available)
+      try {
+        await subscriptionService.markEventProcessed(event.id, true);
+      } catch (dbError) {
+        logger.warn('Could not mark event as processed in database');
+      }
 
       res.json({ received: true });
     } catch (error) {
       logger.error(`Error processing webhook: ${error.message}`, error);
 
-      // Mark event as failed
-      await subscriptionService.markEventProcessed(event.id, false, error.message);
+      // Mark event as failed (if database available)
+      try {
+        await subscriptionService.markEventProcessed(event.id, false, error.message);
+      } catch (dbError) {
+        logger.warn('Could not mark event as failed in database');
+      }
 
       res.status(500).json({ error: 'Webhook processing failed' });
     }
@@ -161,18 +173,23 @@ async function handleCheckoutCompleted(session) {
     return;
   }
 
-  // Create subscription in database
-  await subscriptionService.upsertSubscription(user.id, {
-    plan_id: plan.id,
-    stripe_customer_id: customer,
-    stripe_subscription_id: subscription,
-    status: stripeSubscription.status,
-    device_limit: plan.deviceLimit,
-    current_period_start: new Date(stripeSubscription.current_period_start * 1000),
-    current_period_end: new Date(stripeSubscription.current_period_end * 1000),
-    trial_start: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
-    trial_end: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
-  });
+  // Create subscription in database (if available)
+  try {
+    await subscriptionService.upsertSubscription(user.id, {
+      plan_id: plan.id,
+      stripe_customer_id: customer,
+      stripe_subscription_id: subscription,
+      status: stripeSubscription.status,
+      device_limit: plan.deviceLimit,
+      current_period_start: new Date(stripeSubscription.current_period_start * 1000),
+      current_period_end: new Date(stripeSubscription.current_period_end * 1000),
+      trial_start: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
+      trial_end: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
+    });
+    logger.info('Subscription saved to database');
+  } catch (dbError) {
+    logger.warn('Database not available, using attributes only');
+  }
 
   // Also update user attributes for backward compatibility
   await traccarClient.updateSubscriptionMetadata(user.id, {
@@ -213,18 +230,22 @@ async function handleSubscriptionCreated(subscription) {
     return;
   }
 
-  // Create subscription in database
-  await subscriptionService.upsertSubscription(user.id, {
-    plan_id: plan.id,
-    stripe_customer_id: customer,
-    stripe_subscription_id: subscription.id,
-    status: subscription.status,
-    device_limit: plan.deviceLimit,
-    current_period_start: new Date(subscription.current_period_start * 1000),
-    current_period_end: new Date(subscription.current_period_end * 1000),
-    trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
-    trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
-  });
+  // Create subscription in database (if available)
+  try {
+    await subscriptionService.upsertSubscription(user.id, {
+      plan_id: plan.id,
+      stripe_customer_id: customer,
+      stripe_subscription_id: subscription.id,
+      status: subscription.status,
+      device_limit: plan.deviceLimit,
+      current_period_start: new Date(subscription.current_period_start * 1000),
+      current_period_end: new Date(subscription.current_period_end * 1000),
+      trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
+      trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+    });
+  } catch (dbError) {
+    logger.warn('Database not available for subscription creation');
+  }
 
   // Update device limit in tc_users.attributes for backward compatibility
   await traccarClient.updateUserLimits(user.id, plan.deviceLimit, {
@@ -264,20 +285,24 @@ async function handleSubscriptionUpdated(subscription) {
     return;
   }
 
-  // Update subscription in database
-  await subscriptionService.upsertSubscription(user.id, {
-    plan_id: plan.id,
-    stripe_customer_id: subscription.customer,
-    stripe_subscription_id: subscription.id,
-    status: status,
-    device_limit: plan.deviceLimit,
-    current_period_start: new Date(subscription.current_period_start * 1000),
-    current_period_end: new Date(subscription.current_period_end * 1000),
-    trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
-    trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
-    cancel_at_period_end: subscription.cancel_at_period_end || false,
-    canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
-  });
+  // Update subscription in database (if available)
+  try {
+    await subscriptionService.upsertSubscription(user.id, {
+      plan_id: plan.id,
+      stripe_customer_id: subscription.customer,
+      stripe_subscription_id: subscription.id,
+      status: status,
+      device_limit: plan.deviceLimit,
+      current_period_start: new Date(subscription.current_period_start * 1000),
+      current_period_end: new Date(subscription.current_period_end * 1000),
+      trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
+      trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+      cancel_at_period_end: subscription.cancel_at_period_end || false,
+      canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+    });
+  } catch (dbError) {
+    logger.warn('Database not available for subscription update');
+  }
 
   // Update device limit in tc_users.attributes for backward compatibility
   await traccarClient.updateUserLimits(user.id, plan.deviceLimit, {
@@ -316,8 +341,12 @@ async function handleSubscriptionDeleted(subscription) {
     return;
   }
 
-  // End subscription in database
-  await subscriptionService.endSubscription(user.id);
+  // End subscription in database (if available)
+  try {
+    await subscriptionService.endSubscription(user.id);
+  } catch (dbError) {
+    logger.warn('Database not available for subscription deletion');
+  }
 
   // Disable user account
   await traccarClient.setUserStatus(user.id, true);
@@ -355,13 +384,17 @@ async function handlePaymentFailed(invoice) {
     lastPaymentAttempt: new Date().toISOString(),
   });
 
-  // Add history entry
-  await subscriptionService.addSubscriptionHistory(
-    user.id,
-    'payment_failed',
-    `Payment failed for invoice ${invoice.id}`,
-    { invoice_id: invoice.id, amount: invoice.amount_due }
-  );
+  // Add history entry (if database available)
+  try {
+    await subscriptionService.addSubscriptionHistory(
+      user.id,
+      'payment_failed',
+      `Payment failed for invoice ${invoice.id}`,
+      { invoice_id: invoice.id, amount: invoice.amount_due }
+    );
+  } catch (dbError) {
+    logger.warn('Could not log payment failure to database');
+  }
 
   logger.info(`Payment failed notification for user ${user.id}`);
 }
@@ -392,13 +425,17 @@ async function handlePaymentSucceeded(invoice) {
   // Ensure account is enabled
   await traccarClient.setUserStatus(user.id, false);
 
-  // Add history entry
-  await subscriptionService.addSubscriptionHistory(
-    user.id,
-    'payment_succeeded',
-    `Payment succeeded for invoice ${invoice.id}`,
-    { invoice_id: invoice.id, amount: invoice.amount_paid }
-  );
+  // Add history entry (if database available)
+  try {
+    await subscriptionService.addSubscriptionHistory(
+      user.id,
+      'payment_succeeded',
+      `Payment succeeded for invoice ${invoice.id}`,
+      { invoice_id: invoice.id, amount: invoice.amount_paid }
+    );
+  } catch (dbError) {
+    logger.warn('Could not log payment success to database');
+  }
 
   logger.info(`Payment confirmed for user ${user.id}`);
 }

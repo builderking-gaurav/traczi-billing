@@ -78,17 +78,23 @@ let server;
 
 async function startServer() {
   try {
-    // Initialize database connection pool
-    await database.initialize();
-    logger.info('Database connection pool initialized');
+    // Try to initialize database connection pool (optional)
+    try {
+      await database.initialize();
+      logger.info('✓ Database connection pool initialized');
+      logger.info(`Database: ${config.database.host}/${config.database.database}`);
+    } catch (dbError) {
+      logger.warn('⚠️  Database connection failed - server will run without database features');
+      logger.warn(`Database error: ${dbError.message}`);
+      logger.warn('Subscription management will use Traccar user attributes as fallback');
+    }
 
-    // Start Express server
+    // Start Express server (even if database failed)
     server = app.listen(PORT, () => {
       logger.info(`Traczi Billing Middleware started on port ${PORT}`);
       logger.info(`Environment: ${config.nodeEnv}`);
       logger.info(`Traccar API: ${config.traccar.baseUrl}`);
       logger.info(`Frontend URL: ${config.frontend.url}`);
-      logger.info(`Database: ${config.database.host}/${config.database.database}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
