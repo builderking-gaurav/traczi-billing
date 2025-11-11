@@ -15,6 +15,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const plans = [
   {
+    id: 'test',
+    name: 'Test Plan',
+    price: 5,
+    deviceLimit: 5,
+    description: 'Up to 5 devices with real-time tracking and basic reports',
+  },
+  {
     id: 'basic',
     name: 'Basic Plan',
     price: 20,
@@ -114,6 +121,7 @@ async function main() {
 
     console.log('\n✅ Setup Complete!\n');
     console.log('Update your server/.env file with these Price IDs:\n');
+    console.log(`STRIPE_PRICE_TEST=${priceIds.test}`);
     console.log(`STRIPE_PRICE_BASIC=${priceIds.basic}`);
     console.log(`STRIPE_PRICE_MODERATE=${priceIds.moderate}`);
     console.log(`STRIPE_PRICE_ADVANCE=${priceIds.advance}`);

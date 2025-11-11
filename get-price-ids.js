@@ -6,6 +6,7 @@ dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const productIds = {
+  test: 'prod_TP2zObZkt8i0wf',
   basic: 'prod_TOiXzoqvhPFULI',
   moderate: 'prod_TOiYODcalj8N1U',
   advance: 'prod_TOiaeL07yuHM7H',
@@ -37,9 +38,10 @@ async function getPriceIds() {
     }
   }
 
-  if (Object.keys(priceIds).length === 3) {
+  if (Object.keys(priceIds).length === 4) {
     console.log('\n✅ All Price IDs found!\n');
     console.log('Update your server/.env with:\n');
+    console.log(`STRIPE_PRICE_TEST=${priceIds.test}`);
     console.log(`STRIPE_PRICE_BASIC=${priceIds.basic}`);
     console.log(`STRIPE_PRICE_MODERATE=${priceIds.moderate}`);
     console.log(`STRIPE_PRICE_ADVANCE=${priceIds.advance}`);

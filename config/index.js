@@ -11,6 +11,7 @@ const config = {
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
     prices: {
+      test: process.env.STRIPE_PRICE_TEST,
       basic: process.env.STRIPE_PRICE_BASIC,
       moderate: process.env.STRIPE_PRICE_MODERATE,
       advance: process.env.STRIPE_PRICE_ADVANCE,

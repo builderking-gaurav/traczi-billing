@@ -4,6 +4,19 @@
  */
 
 export const PLANS = {
+  TEST: {
+    id: 'test',
+    name: 'Test Plan',
+    price: 5,
+    currency: 'USD',
+    deviceLimit: 5,
+    features: [
+      'Up to 5 devices',
+      'Real-time tracking',
+      'Basic reports',
+      'Email support',
+    ],
+  },
   BASIC: {
     id: 'basic',
     name: 'Basic Plan',
@@ -60,6 +73,7 @@ export const getPlanById = (planId) => {
  * Get plan by Stripe Price ID
  */
 export const getPlanByPriceId = (priceId, stripePrices) => {
+  if (priceId === stripePrices.test) return PLANS.TEST;
   if (priceId === stripePrices.basic) return PLANS.BASIC;
   if (priceId === stripePrices.moderate) return PLANS.MODERATE;
   if (priceId === stripePrices.advance) return PLANS.ADVANCE;
