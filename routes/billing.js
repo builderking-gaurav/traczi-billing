@@ -131,9 +131,32 @@ router.post(
 
     logger.info(`Creating portal session for customer: ${customerId}`);
 
+    // Validate return URL
+    const returnUrl = config.frontend.url;
+    if (!returnUrl || returnUrl === 'undefined' || returnUrl === 'null') {
+      logger.error('FRONTEND_URL not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Payment processing error',
+        message: 'Frontend URL not configured. Please contact support.',
+      });
+    }
+
+    // Validate URL format
+    try {
+      new URL(returnUrl);
+    } catch (err) {
+      logger.error(`Invalid FRONTEND_URL: ${returnUrl}`);
+      return res.status(500).json({
+        success: false,
+        error: 'Payment processing error',
+        message: 'Not a valid URL',
+      });
+    }
+
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: config.frontend.url,
+      return_url: returnUrl,
     });
 
     res.json({
