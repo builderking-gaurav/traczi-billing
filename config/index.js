@@ -33,6 +33,17 @@ const config = {
   security: {
     allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(','),
   },
+
+  database: {
+    host: process.env.DB_HOST || '35.192.15.228',
+    port: parseInt(process.env.DB_PORT, 10) || 3306,
+    database: process.env.DB_NAME || 'traccar',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD,
+    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 10,
+    waitForConnections: true,
+    queueLimit: 0,
+  },
 };
 
 // Validation

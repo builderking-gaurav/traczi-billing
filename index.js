@@ -6,6 +6,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import billingRoutes from './routes/billing.js';
 import webhookRoutes from './routes/webhooks.js';
+import database from './lib/database.js';
 import logger from './utils/logger.js';
 
 // Validate configuration on startup
@@ -71,24 +72,57 @@ app.use(notFoundHandler);
 // Error handler
 app.use(errorHandler);
 
-// Start server
+// Initialize database and start server
 const PORT = config.port;
-app.listen(PORT, () => {
-  logger.info(`Traczi Billing Middleware started on port ${PORT}`);
-  logger.info(`Environment: ${config.nodeEnv}`);
-  logger.info(`Traccar API: ${config.traccar.baseUrl}`);
-  logger.info(`Frontend URL: ${config.frontend.url}`);
-});
+let server;
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
+async function startServer() {
+  try {
+    // Initialize database connection pool
+    await database.initialize();
+    logger.info('Database connection pool initialized');
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
+    // Start Express server
+    server = app.listen(PORT, () => {
+      logger.info(`Traczi Billing Middleware started on port ${PORT}`);
+      logger.info(`Environment: ${config.nodeEnv}`);
+      logger.info(`Traccar API: ${config.traccar.baseUrl}`);
+      logger.info(`Frontend URL: ${config.frontend.url}`);
+      logger.info(`Database: ${config.database.host}/${config.database.database}`);
+    });
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown handler
+async function gracefulShutdown(signal) {
+  logger.info(`${signal} received, shutting down gracefully`);
+
+  // Close server (stop accepting new connections)
+  if (server) {
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
+  }
+
+  // Close database connections
+  try {
+    await database.close();
+    logger.info('Database connections closed');
+  } catch (error) {
+    logger.error('Error closing database:', error);
+  }
+
   process.exit(0);
-});
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Start the server
+startServer();
 
 export default app;

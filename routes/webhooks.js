@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { config } from '../config/index.js';
 import { getPlanByPriceId } from '../config/plans.js';
 import traccarClient from '../lib/traccarClient.js';
+import subscriptionService from '../lib/subscriptionService.js';
 import { webhookLimiter } from '../middleware/rateLimiter.js';
 import logger from '../utils/logger.js';
 
@@ -35,6 +36,16 @@ router.post(
 
     logger.info(`Received Stripe webhook: ${event.type}`);
 
+    // Log event to database
+    await subscriptionService.logStripeEvent({
+      stripe_event_id: event.id,
+      event_type: event.type,
+      stripe_customer_id: event.data.object.customer || null,
+      stripe_subscription_id: event.data.object.id || event.data.object.subscription || null,
+      payload: event.data.object,
+      processed: false,
+    });
+
     try {
       // Handle different event types
       switch (event.type) {
@@ -66,9 +77,16 @@ router.post(
           logger.info(`Unhandled event type: ${event.type}`);
       }
 
+      // Mark event as processed
+      await subscriptionService.markEventProcessed(event.id, true);
+
       res.json({ received: true });
     } catch (error) {
       logger.error(`Error processing webhook: ${error.message}`, error);
+
+      // Mark event as failed
+      await subscriptionService.markEventProcessed(event.id, false, error.message);
+
       res.status(500).json({ error: 'Webhook processing failed' });
     }
   }
@@ -133,11 +151,34 @@ async function handleCheckoutCompleted(session) {
     }
   }
 
-  // Update user with subscription metadata
+  // Get the full subscription object from Stripe
+  const stripeSubscription = await stripe.subscriptions.retrieve(subscription);
+  const priceId = stripeSubscription.items.data[0].price.id;
+  const plan = getPlanByPriceId(priceId, config.stripe.prices);
+
+  if (!plan) {
+    logger.error(`Unknown price ID: ${priceId}`);
+    return;
+  }
+
+  // Create subscription in database
+  await subscriptionService.upsertSubscription(user.id, {
+    plan_id: plan.id,
+    stripe_customer_id: customer,
+    stripe_subscription_id: subscription,
+    status: stripeSubscription.status,
+    device_limit: plan.deviceLimit,
+    current_period_start: new Date(stripeSubscription.current_period_start * 1000),
+    current_period_end: new Date(stripeSubscription.current_period_end * 1000),
+    trial_start: stripeSubscription.trial_start ? new Date(stripeSubscription.trial_start * 1000) : null,
+    trial_end: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
+  });
+
+  // Also update user attributes for backward compatibility
   await traccarClient.updateSubscriptionMetadata(user.id, {
     customerId: customer,
     subscriptionId: subscription,
-    plan: metadata.planId,
+    plan: plan.id,
     status: 'active',
     startDate: new Date().toISOString(),
   });
@@ -172,7 +213,20 @@ async function handleSubscriptionCreated(subscription) {
     return;
   }
 
-  // Update device limit
+  // Create subscription in database
+  await subscriptionService.upsertSubscription(user.id, {
+    plan_id: plan.id,
+    stripe_customer_id: customer,
+    stripe_subscription_id: subscription.id,
+    status: subscription.status,
+    device_limit: plan.deviceLimit,
+    current_period_start: new Date(subscription.current_period_start * 1000),
+    current_period_end: new Date(subscription.current_period_end * 1000),
+    trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
+    trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+  });
+
+  // Update device limit in tc_users.attributes for backward compatibility
   await traccarClient.updateUserLimits(user.id, plan.deviceLimit, {
     subscriptionPlan: plan.id,
   });
@@ -210,7 +264,22 @@ async function handleSubscriptionUpdated(subscription) {
     return;
   }
 
-  // Update device limit based on new plan
+  // Update subscription in database
+  await subscriptionService.upsertSubscription(user.id, {
+    plan_id: plan.id,
+    stripe_customer_id: subscription.customer,
+    stripe_subscription_id: subscription.id,
+    status: status,
+    device_limit: plan.deviceLimit,
+    current_period_start: new Date(subscription.current_period_start * 1000),
+    current_period_end: new Date(subscription.current_period_end * 1000),
+    trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000) : null,
+    trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
+    cancel_at_period_end: subscription.cancel_at_period_end || false,
+    canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+  });
+
+  // Update device limit in tc_users.attributes for backward compatibility
   await traccarClient.updateUserLimits(user.id, plan.deviceLimit, {
     subscriptionPlan: plan.id,
     subscriptionStatus: status,
@@ -246,6 +315,9 @@ async function handleSubscriptionDeleted(subscription) {
     logger.error(`User not found: ${email}`);
     return;
   }
+
+  // End subscription in database
+  await subscriptionService.endSubscription(user.id);
 
   // Disable user account
   await traccarClient.setUserStatus(user.id, true);
@@ -283,6 +355,14 @@ async function handlePaymentFailed(invoice) {
     lastPaymentAttempt: new Date().toISOString(),
   });
 
+  // Add history entry
+  await subscriptionService.addSubscriptionHistory(
+    user.id,
+    'payment_failed',
+    `Payment failed for invoice ${invoice.id}`,
+    { invoice_id: invoice.id, amount: invoice.amount_due }
+  );
+
   logger.info(`Payment failed notification for user ${user.id}`);
 }
 
@@ -311,6 +391,14 @@ async function handlePaymentSucceeded(invoice) {
 
   // Ensure account is enabled
   await traccarClient.setUserStatus(user.id, false);
+
+  // Add history entry
+  await subscriptionService.addSubscriptionHistory(
+    user.id,
+    'payment_succeeded',
+    `Payment succeeded for invoice ${invoice.id}`,
+    { invoice_id: invoice.id, amount: invoice.amount_paid }
+  );
 
   logger.info(`Payment confirmed for user ${user.id}`);
 }
